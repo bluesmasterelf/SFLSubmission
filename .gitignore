@@ -1,0 +1,5 @@
+
+.DS_Store
+composerMidis/musicnet_midis/*
+sfl-data/*
+.ipynb_checkpoints/*
