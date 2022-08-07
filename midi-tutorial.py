@@ -17,12 +17,50 @@ from sklearn.datasets import load_iris
 
 # helper methods and class declarations
 class Note():
+    """ For the purposes of midi, a note is a pitch with a start and stop time. 
+    instrument could be added later, if it adds value. """
     def __init__(self, pitch, start, stop):
         self.pitch = pitch
         self.start = start
         self.stop = stop
     def duration(self):
         return self.stop - self.start
+
+class Chord():
+    def __init__(self, notes):
+        self.notes = notes
+    def complexity(self): 
+        return [
+            # total number of notes is a measure of chord complexity
+            len(self.notes), 
+            # net dissonance internal to the chord is a measure of complexity. 
+            chord_dissonance(self),
+        ]
+
+dissonance_dict = {
+    (0, 1), # tonic
+    (1, 15), # flat 2
+    (2, 8), # second
+    (3, 5), # min third
+    (4, 4), # maj thirds
+    (5, 3), # perfect fourth
+    (6, 50), # tritone
+    (7, 2), # perfect fifth
+    (8, 5), # sharp 5
+    (9, 3), # sixth
+    (10, 4), # maj seventh
+    (11, 8), # seventh
+}
+
+def chord_dissonance(chord):
+    dissonances = []
+    for i in range(len(chord.notes)):
+        for j in range(i +1, len(chord.notes)):
+            note_dist = chord.notes[j].pitch - chord.notes[i].pitch
+            dissonances.append(dissonance_dict[note_dist % 12])
+    dissonance_index = np.average(dissonances)
+    return dissonance_index
+
 
 def load_training_data():
     midis = []
@@ -87,6 +125,7 @@ def optional_visualization():
 
 def reduce_midi_to_np_array(mid):
     tracks = []
+    all_notes = []
     for track in mid.tracks:
         times = []
         time = 0
@@ -139,15 +178,15 @@ def reduce_midi_to_np_array(mid):
             # use numpy slicing to apply the note value to every first index that is between its left and right.
             time_chunks[range(note.start, note.stop), note.pitch] = 1
 
-        # right now, the collection of ticks carries massive amounts of redundancy. We should down-sample significantly to hold down compute times.
+        # At this point, we have all of the notes. We can use them to build a collection of chords. 
+        # Python is Not going to like the indexing arguments I'm about to use. Oh well. 
+        
+        # right now, the collection of ticks carries massive amounts of redundancy. 
+        # We should down-sample significantly to hold down compute times.
+        tracks.append(time_chunks[0::10])
 
-        if (len(times)>0):
-            tracks.append(time_chunks[0::10])
-
-    # Start with just using the first track, Aggregate tracks by simply adding them. 
-
+    # Aggregate tracks by simply adding them. 
     total_tracks = sum(tracks)
-    #total_nonzero = np.sum(total_tracks)
     total_tracks = np.reshape(total_tracks, (total_tracks.shape[0]* total_tracks.shape[1]))
     return total_tracks
 
@@ -226,22 +265,35 @@ if __name__=="__main__":
     #             print(outlier[1] + other[1])
     # It did work, but only because the outliers ended up in my training set. Need to do better than that.
 
-    print("Using supervised Logistic Regression due to small sample size.")
     #gnb = MultinomialNB()
     # multinomialNB got 2 out of 3, but false positived on 8 others. [0. 1. 0. 1. 1. 0. 0. 1. 1. 0. 1. 1. 1. 0. 1. 0. 1. 1. 1. 1. 0. 1. 1. 0.
- #1. 1. 1. 0. 1. 1. 0. 1. 1. 1. 1.] barely better than random.
+    #1. 1. 1. 0. 1. 1. 0. 1. 1. 1. 1.] barely better than random.
     #gnb = CategoricalNB()
 
+    print("Using supervised Logistic Regression due to small sample size.")
     gnb = LogisticRegression(solver='liblinear', max_iter=250, penalty='l1')
 
     # ComplementNB was identical to MultinomialNB - the dataset must not be sufficiently imbalanced for it to work.
     # BernoulliNB was pretty crap
     # so was CategorigcalNB
     y_pred = gnb.fit(data, y_train)
-    print(gnb.predict(data))
-    print(gnb.predict(test_data))
+    # print(gnb.predict(data))
+    # print(gnb.predict(test_data))
 
+    # When the mids in this set were processed down before, they were altered. Processing them down again
+    # somehow allows the model to flag 7 outliers, 3 of which are the correct ones. 
+    # I'm committing this because, hey, it kinda worked. 
+    # Thinking about how processing twice would work, I think the start and stop times of notes would be doubled. 
+    # which should perturb the model on ALL of the inputs, but somehow this allows it to catch the Mozart pieces... 
+    # Upon listening to the three outlier Mozart pieces, I can tell two of them are quite slow, so slowing them down much more
+    # could be what is tripping off the detector. This could be a valid preprocessor. Something about length of notes
+    # may be viable discriminator between composers within this particular problem space. 
+    test_two = []
     for mid in test_mids:
-        pred = gnb.predict([np.array(reduce_midi_to_np_array(mid[0]))])
-        if pred[0] == 0:
-            print(mid[1])
+        temp = np.array(reduce_midi_to_np_array(mid[0]))
+        test_two.append(temp)
+        pred = gnb.predict_proba([temp])
+        if pred[0][1] < 0.44:
+            print(str(pred[0][1]) + " " + mid[1])
+            # This appears to get all three, plus one or two false positive errata. 
+    print(gnb.predict(test_two))
