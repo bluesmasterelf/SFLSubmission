@@ -5,6 +5,15 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 from sklearn.svm import OneClassSVM
+from sklearn.ensemble import IsolationForest
+from sklearn.covariance import EllipticEnvelope
+from sklearn.naive_bayes import GaussianNB, BernoulliNB, ComplementNB, MultinomialNB, CategoricalNB
+
+from sklearn.linear_model import LogisticRegression
+
+# TO remove
+from sklearn.model_selection import train_test_split
+from sklearn.datasets import load_iris
 
 # helper methods and class declarations
 class Note():
@@ -17,23 +26,39 @@ class Note():
 
 def load_training_data():
     midis = []
+    non_midis = []
     BACH_DIR = 'sfl-data/MusicNet/PS1/Bach/'
     BRAHMS_DIR = 'sfl-data/MusicNet/PS1/Brahms/'
     BEETHOVEN_DIR = 'sfl-data/MusicNet/PS1/Beethoven/'
     SCHUBERT_DIR = 'sfl-data/MusicNet/PS1/Schubert/'
+
+    # Using similar but different data to turn this into a supervised problem.
+    RAVEL_DIR = 'composerMidis/musicnet_midis/Ravel/'
+    MOZART_DIR = 'composerMidis/musicnet_midis/Mozart/'
+    DVORAK_DIR = 'composerMidis/musicnet_midis/Dvorak/'
+    CAMBINI_DIR = 'composerMidis/musicnet_midis/Cambini/'
+    FAURE_DIR = 'composerMidis/musicnet_midis/Faure/'
+    HAYDN_DIR = 'composerMidis/musicnet_midis/Haydn/'
+
     SOURCE_DIRS = [BACH_DIR, BRAHMS_DIR, BEETHOVEN_DIR, SCHUBERT_DIR]
+    NON_DIRS = [RAVEL_DIR, MOZART_DIR] 
+    NON_DIRS += [DVORAK_DIR, CAMBINI_DIR, FAURE_DIR, HAYDN_DIR]
     for dir in SOURCE_DIRS:
         for filename in os.listdir(dir):
             mid = MidiFile(dir + filename, clip=True)
             midis.append(mid)
-    return midis
+    for dir in NON_DIRS:
+        for filename in os.listdir(dir):
+            mid = MidiFile(dir + filename, clip=True)
+            non_midis.append(mid)#, filename])
+    return midis, non_midis
 
 def load_test_data():
     midis = []
     TEST_DIR = 'sfl-data/MusicNet/PS2/'   
     for filename in os.listdir(TEST_DIR):
         mid = MidiFile(TEST_DIR + filename, clip=True)
-        midis.append(mid)
+        midis.append([mid, filename])
     return midis
 
 def optional_visualization():
@@ -62,47 +87,161 @@ def optional_visualization():
 
 def reduce_midi_to_np_array(mid):
     tracks = []
-    for track in mid.tracks[1:2]:
+    for track in mid.tracks:
         times = []
         time = 0
+        note_events = []
         for message in track:
             if message.type == 'note_on':
-                # TODO use the note_off messages.
                 pitch = message.note
 
                 # Potentially very inefficient manner of walking the file and producing a list of notes with start and stop times.
                 if message.time != 0:
                     time += message.time
-                times.append(time)
-        tracks.append(times)
-        # start with the absurdly naive idea that a track can be reduced the total number of time stamps. 
-    return [len(tracks[0])]
+                times.append([time, pitch])
+                # I want to transform all of these events so that they are easier for me to understand. 
+                # optimization would involve engineering this transform out.
+                message.time = time
+                note_events.append(message)
+
+        # At this point, we have all of the times, and the messages have been adapted so that they match up with these times.
+        # we want to break the track into a series of pieces of seconds with notes in them. 
+        # we could make the list of second portions first, and then add notes, but that would be hella slow, I think. 
+        # time_chunks = np.zeros(30 seconds * 1350 ticks-per-second) by 128 square (the total number of possible notes) 
+        MAX_TICKS = 30*1350
+        time_chunks = np.zeros((MAX_TICKS, 127))
+        # # this is the song space, left to right 
+        # for time in time_chunks:
+            # if note start < time and note end > time
+                # then note is in time_chunk
+                # this approach would sweep the entire message set number of time chunks times, squared, hella slow.
+        bag_of_notes = []
+        for i in range(len(note_events)):
+            if note_events[i].velocity > 0:
+                # Then this is the introduction of a note, construct a note object. 
+                this_note = Note(note_events[i].note, note_events[i].time, None)
+                # we need to find the note end event for this note
+                for j in range(i+1, len(note_events)):
+                    if note_events[j].note == this_note.pitch:
+                        this_note.stop = note_events[j].time
+                        # stop looking for the end of the note. 
+                        break
+                if this_note.stop is None:
+                    # must be some last index kind of issue. Just have it terminate out one tick later for now. Perform clean up later.
+                    this_note.stop = this_note.start + 1
+                bag_of_notes.append(this_note)        
+
+        # Now, for each note, simply add it to every click for which that note is active. 
+        for note in bag_of_notes:
+            # stop when we've reached 30 seconds (or whatever the max time is. )
+            if note.stop > MAX_TICKS: 
+                break
+            # use numpy slicing to apply the note value to every first index that is between its left and right.
+            time_chunks[range(note.start, note.stop), note.pitch] = 1
+
+        # right now, the collection of ticks carries massive amounts of redundancy. We should down-sample significantly to hold down compute times.
+
+        if (len(times)>0):
+            tracks.append(time_chunks[0::10])
+
+    # Start with just using the first track, Aggregate tracks by simply adding them. 
+
+    total_tracks = sum(tracks)
+    #total_nonzero = np.sum(total_tracks)
+    total_tracks = np.reshape(total_tracks, (total_tracks.shape[0]* total_tracks.shape[1]))
+    return total_tracks
 
 # testing code
 if __name__=="__main__":
     # originally followed tutorial https://www.twilio.com/blog/working-with-midi-data-in-python-using-mido
 
     # load training data
-    midis = load_training_data()
+    midis, non_midis = load_training_data()
 
     # Sample vizualization
     #optional_visualization()    
     
     # load into numpy because sklearn likes numpy
+    print("Loading training and test data.")
     data = []
     for mid in midis:
         data.append(np.array(reduce_midi_to_np_array(mid)))
-        # TODO next line fails. 
-    #numpy_data = np.array(data)
-    
-    clf = OneClassSVM(gamma='auto').fit(data)
-    var = clf.predict(data)
-    print(var)
+    #non_data = []
+    for mid in non_midis:
+        data.append(np.array(reduce_midi_to_np_array(mid)))#, mid[1]])
+    # Create a label set, 1 up to 184, 0 after. 
+    y_train = np.zeros(len(data))
+    y_train[:184] = 1
 
-    # Now predict on the second set of data.
     test_data = []
     test_mids = load_test_data()
     for mid in test_mids:
-        test_data.append(np.array(reduce_midi_to_np_array(mid)))
+        test_data.append(np.array(reduce_midi_to_np_array(mid[0])))#, mid[1]])
+    
+    # one class svm performed Really badly. 
+    # print("One class svm")    
+    # svm = OneClassSVM(nu = 0.01, gamma='scale', kernel='rbf').fit(data)
+    # print(svm.predict(data))
 
-    print(clf.predict(test_data))
+    # # Now predict on the second set of data.
+    # print(svm.predict(test_data))
+
+    # print("Isolation Forest")
+    # isof =  IsolationForest(contamination=0.01, random_state=42)
+    # isof.fit(data)
+
+    # print("Model is fit, predicting on original data. ")
+    # print(isof.predict(data))
+    # print("Predicting on test data now.")
+    # print(isof.predict(test_data))
+
+    # Elliptic Envelope requires waaaaaay too much memory for a dataset like this. It immediately squares the input size in ram.
+    # possibly this could be used if the midis were reduced much more, as I intend to try at some point. 
+    # print("Robust covariance")
+    # envelope = EllipticEnvelope(contamination=0.01)
+    # envelope.fit(data)
+    # print("Envelop is fit, predicting on original data")
+    # print(envelope.predict(data))
+    # print(envelope.predict(test_data))
+
+    # Running out of easy unsupervised approaches. Try making it a supervised problem instead. 
+    # X, y = load_iris(return_X_y=True)
+    # X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=0)
+
+    # print("Using supervised Naive Bayes due to small sample size.")
+    # gnb = GaussianNB()
+    # y_pred = gnb.fit(data, y_train)
+    # print(gnb.predict(data))
+    # print(gnb.predict(test_data))
+
+    # That appeared to work. Now I want to prove it is correct. To do that, I'd have to compare to all the midis in the non-data.
+    # for outlier in test_data:
+    #     for other in data:
+    #         diff = outlier[0] - other[0]
+    #         total_diff = np.sum(diff)
+    #         #if total_diff < 15 and total_diff > -15:
+    #         #print(other)
+    #         #print(total_diff)
+    #         if total_diff == 0:
+    #             print(outlier[1] + other[1])
+    # It did work, but only because the outliers ended up in my training set. Need to do better than that.
+
+    print("Using supervised Logistic Regression due to small sample size.")
+    #gnb = MultinomialNB()
+    # multinomialNB got 2 out of 3, but false positived on 8 others. [0. 1. 0. 1. 1. 0. 0. 1. 1. 0. 1. 1. 1. 0. 1. 0. 1. 1. 1. 1. 0. 1. 1. 0.
+ #1. 1. 1. 0. 1. 1. 0. 1. 1. 1. 1.] barely better than random.
+    #gnb = CategoricalNB()
+
+    gnb = LogisticRegression(solver='liblinear', max_iter=250, penalty='l1')
+
+    # ComplementNB was identical to MultinomialNB - the dataset must not be sufficiently imbalanced for it to work.
+    # BernoulliNB was pretty crap
+    # so was CategorigcalNB
+    y_pred = gnb.fit(data, y_train)
+    print(gnb.predict(data))
+    print(gnb.predict(test_data))
+
+    for mid in test_mids:
+        pred = gnb.predict([np.array(reduce_midi_to_np_array(mid[0]))])
+        if pred[0] == 0:
+            print(mid[1])
