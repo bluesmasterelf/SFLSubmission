@@ -3,3 +3,5 @@
 composerMidis/musicnet_midis/*
 sfl-data/*
 .ipynb_checkpoints/*
+NB1_files/*
+__pycache__/outlier_pipeline.cpython-39.pyc

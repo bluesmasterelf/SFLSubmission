@@ -338,51 +338,52 @@ def test_midi_reduction_techniques_unsupervised():
         extracted_test_data.append([np.array(extract_features_from_midi(mid[0])), mid[1]])
   
     #one class svm performed Really badly on original approach. It's spitting out one wrong one here.
-    # print("One class svm")    
-    # svm = OneClassSVM(nu = 0.01, gamma='scale', kernel='rbf').fit(extracted_train_data)
-    # print(svm.predict(extracted_train_data))
+    print("One class svm")    
+    svm = OneClassSVM(nu = 0.01, gamma='scale', kernel='rbf').fit(extracted_train_data)
+    print(svm.predict(extracted_train_data))
 
     # # Now predict on the second set of data.
-    # for sample in extracted_test_data:
-    #     pred = svm.predict([sample[0]])
-    #     if pred < 0:
-    #         print(sample[1])
+    for sample in extracted_test_data:
+        pred = svm.predict([sample[0]])
+        if pred < 0:
+            print(sample[1])
 
-    # print("Isolation Forest")
-    # isof =  IsolationForest(contamination=0.01, random_state=42)
-    # isof.fit(extracted_train_data)
+    print("Isolation Forest")
+    isof =  IsolationForest(contamination=0.01, random_state=42)
+    isof.fit(extracted_train_data)
 
-    # print("Model is fit, predicting on original data. ")
-    # print(isof.predict(extracted_train_data))
-    # print("Predicting on test data now.")
-    # for sample in extracted_test_data:
-    #     pred = isof.predict([sample[0]])
-    #     if pred < 0:
-    #         print(sample[1])
+    print("Model is fit, predicting on original data. ")
+    print(isof.predict(extracted_train_data))
+    print("Predicting on test data now.")
+    for sample in extracted_test_data:
+        pred = isof.predict([sample[0]])
+        if pred < 0:
+            print(sample[1])
 
-    # print("Robust covariance")
-    # envelope = EllipticEnvelope(contamination=0.01)
-    # envelope.fit(extracted_train_data)
-    # print("Envelop is fit, predicting on original data")
-    # print(envelope.predict(extracted_train_data))
-    # for sample in extracted_test_data:
-    #     pred = envelope.predict([sample[0]])
-    #     if pred < 0:
-    #         print(sample[1])
+    print("Robust covariance")
+    envelope = EllipticEnvelope(contamination=0.01)
+    envelope.fit(extracted_train_data)
+    print("Envelop is fit, predicting on original data")
+    print(envelope.predict(extracted_train_data))
+    for sample in extracted_test_data:
+        pred = envelope.predict([sample[0]])
+        if pred < 0:
+            print(sample[1])
 
     # See if we can use some clustering techniques. 
     # KMeans is not a reasonable choice due to the differences in cluster size.
 
     # DBSCAN does not perform well on this data. Will flag anomalies, but not the right ones.
-    # dists = [100000, 200000, 300000, 400000, 500000]
-    # for dist in dists:
-    #     scanner = DBSCAN(eps=dist)
-    #     scanner.fit(extracted_train_data)
-        # all_data = []
-        # all_data += extracted_train_data
-        # for datum in extracted_test_data:
-        #     all_data.append(datum[0])
-    #     print(scanner.fit_predict(all_data))
+    print("DBSCAN - attempting to tune eps")
+    dists = [100000, 200000, 300000, 400000, 500000]
+    for dist in dists:
+        scanner = DBSCAN(eps=dist)
+        scanner.fit(extracted_train_data)
+        all_data = []
+        all_data += extracted_train_data
+        for datum in extracted_test_data:
+            all_data.append(datum[0])
+        print(scanner.fit_predict(all_data))
 
 def test_extracted_data_supervised():    
     # test midi_reduction with extension to supervised learning. 
@@ -419,7 +420,7 @@ def test_extracted_data_supervised():
     # ComplementNB performed similarly to Gaussian, but missed a real outlier.
     # MultinomialNB was the same as ComplementNB.
     # CategoricalNB through an error after catching one outlier ... investigating. 
-    # upgrading it to a try-except, caught 2 of the 3 outliers, while mis-throwing 8 others. 
+    # upgrading it to a try-except, caught 2 of the 3 outliers, while mis-labeling 8 others. 
     gnb.fit(data, y_train)
     print(gnb.predict(data))
     for datum in test_data:
@@ -435,9 +436,9 @@ def test_extracted_data_supervised():
 # testing code
 if __name__=="__main__":
     # First block of code is for using the attempt to extract meaningful information about the tracks en toto.
-    #test_midi_reduction_techniques_unsupervised()
+    # test_midi_reduction_techniques_unsupervised()
 
-    #test_extracted_data_supervised()
+    # test_extracted_data_supervised()
    
     if True:
         # Second block of code is using a more straight second by second redux approach to mapping the tracks into a 
@@ -468,11 +469,11 @@ if __name__=="__main__":
         for mid in test_mids:
             test_data.append(np.array(reduce_midi_to_np_array(mid[0])))#, mid[1]])
         
+        # TODO uncomment next three lines to get model running again. 
+        # print("Using supervised Logistic Regression.")
 
-        print("Using supervised Logistic Regression.")
-
-        gnb = LogisticRegression(solver='liblinear', max_iter=250, penalty='l1')
-        y_pred = gnb.fit(data, y_train)
+        # gnb = LogisticRegression(solver='liblinear', max_iter=250, penalty='l1')
+        # y_pred = gnb.fit(data, y_train)
         # print(gnb.predict(data))
         # print(gnb.predict(test_data))
 
@@ -489,32 +490,27 @@ if __name__=="__main__":
         for mid in test_mids:
             temp = np.array(reduce_midi_to_np_array(mid[0]))
             test_two.append([temp, mid[1]])
-            pred = gnb.predict_proba([temp])
-            # It appears that tuning the the probability down a little improves accuracy with minimal reduction in recall. 
-            if pred[0][1] < 0.44:
-                print(str(pred[0][1]) + " " + mid[1])
+            # TODO uncomment 4 lines. 
+            # pred = gnb.predict_proba([temp])
+            # # It appears that tuning the the probability down a little improves accuracy with minimal reduction in recall. 
+            # if pred[0][1] < 0.44:
+            #     print(str(pred[0][1]) + " " + mid[1])
 
                 # This appears to get all three, plus one or two false positive errata. 
         #print(gnb.predict(test_two))
 
         # Data visualization time. test_mids and test_two are the same length, so we can pairwise compare them. 
-        for i in range(5):
-            orig_two_d_array = np.reshape(test_data[i], (int(MAX_TICKS/10), 127))
-            warp_two_d_array = np.reshape(test_two[i][0], (int(MAX_TICKS/10), 127))
+        for i in range(8):
+            orig_two_d_array = np.reshape(test_data[i], (127, int(MAX_TICKS/10)))
+            warp_two_d_array = np.reshape(test_two[i][0], (127, int(MAX_TICKS/10)))
 
             # too much black-space, need to trim to the reasonable region. 
             orig_reduced = orig_two_d_array[:5000][30:90]
             warp_reduced = warp_two_d_array[:5000][30:90]
-
+            print("Visualizing once and twice processed images for " + test_two[i][1])
             plt.imshow(orig_reduced, cmap='gray')
             plt.show()
             plt.imshow(warp_reduced, cmap='gray')
-            plt.show()
-
-            fig, (ax1, ax2) = plt.subplots(1, 2)
-            fig.suptitle('Original and warped')
-            ax1.plot(orig_reduced)
-            ax2.plot(warp_reduced)
             plt.show()
 
         # To stabilize the logistic regression prediction somewhat, we can simply run it 100 times and determine a confidence. 
