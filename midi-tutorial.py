@@ -11,9 +11,26 @@ from sklearn.naive_bayes import GaussianNB, BernoulliNB, ComplementNB, Multinomi
 
 from sklearn.linear_model import LogisticRegression
 
-# TO remove
-from sklearn.model_selection import train_test_split
-from sklearn.datasets import load_iris
+# Constants
+# time_chunks = np.zeros(30 seconds * 1350 ticks-per-second) by 128 square (the total number of possible notes) 
+MAX_TICKS = 30*1350
+BACH_DIR = 'sfl-data/MusicNet/PS1/Bach/'
+BRAHMS_DIR = 'sfl-data/MusicNet/PS1/Brahms/'
+BEETHOVEN_DIR = 'sfl-data/MusicNet/PS1/Beethoven/'
+SCHUBERT_DIR = 'sfl-data/MusicNet/PS1/Schubert/'
+
+# Using similar but different data to turn this into a supervised problem.
+RAVEL_DIR = 'composerMidis/musicnet_midis/Ravel/'
+MOZART_DIR = 'composerMidis/musicnet_midis/Mozart/'
+DVORAK_DIR = 'composerMidis/musicnet_midis/Dvorak/'
+CAMBINI_DIR = 'composerMidis/musicnet_midis/Cambini/'
+FAURE_DIR = 'composerMidis/musicnet_midis/Faure/'
+HAYDN_DIR = 'composerMidis/musicnet_midis/Haydn/'
+
+SOURCE_DIRS = [BACH_DIR, BRAHMS_DIR, BEETHOVEN_DIR, SCHUBERT_DIR]
+NON_DIRS = [RAVEL_DIR, MOZART_DIR] 
+NON_DIRS += [DVORAK_DIR, CAMBINI_DIR, FAURE_DIR, HAYDN_DIR]
+
 
 # helper methods and class declarations
 class Note():
@@ -65,22 +82,7 @@ def chord_dissonance(chord):
 def load_training_data():
     midis = []
     non_midis = []
-    BACH_DIR = 'sfl-data/MusicNet/PS1/Bach/'
-    BRAHMS_DIR = 'sfl-data/MusicNet/PS1/Brahms/'
-    BEETHOVEN_DIR = 'sfl-data/MusicNet/PS1/Beethoven/'
-    SCHUBERT_DIR = 'sfl-data/MusicNet/PS1/Schubert/'
-
-    # Using similar but different data to turn this into a supervised problem.
-    RAVEL_DIR = 'composerMidis/musicnet_midis/Ravel/'
-    MOZART_DIR = 'composerMidis/musicnet_midis/Mozart/'
-    DVORAK_DIR = 'composerMidis/musicnet_midis/Dvorak/'
-    CAMBINI_DIR = 'composerMidis/musicnet_midis/Cambini/'
-    FAURE_DIR = 'composerMidis/musicnet_midis/Faure/'
-    HAYDN_DIR = 'composerMidis/musicnet_midis/Haydn/'
-
-    SOURCE_DIRS = [BACH_DIR, BRAHMS_DIR, BEETHOVEN_DIR, SCHUBERT_DIR]
-    NON_DIRS = [RAVEL_DIR, MOZART_DIR] 
-    NON_DIRS += [DVORAK_DIR, CAMBINI_DIR, FAURE_DIR, HAYDN_DIR]
+    
     for dir in SOURCE_DIRS:
         for filename in os.listdir(dir):
             mid = MidiFile(dir + filename, clip=True)
@@ -125,7 +127,6 @@ def optional_visualization():
 
 def reduce_midi_to_np_array(mid):
     tracks = []
-    all_notes = []
     for track in mid.tracks:
         times = []
         time = 0
@@ -145,15 +146,8 @@ def reduce_midi_to_np_array(mid):
 
         # At this point, we have all of the times, and the messages have been adapted so that they match up with these times.
         # we want to break the track into a series of pieces of seconds with notes in them. 
-        # we could make the list of second portions first, and then add notes, but that would be hella slow, I think. 
-        # time_chunks = np.zeros(30 seconds * 1350 ticks-per-second) by 128 square (the total number of possible notes) 
-        MAX_TICKS = 30*1350
         time_chunks = np.zeros((MAX_TICKS, 127))
-        # # this is the song space, left to right 
-        # for time in time_chunks:
-            # if note start < time and note end > time
-                # then note is in time_chunk
-                # this approach would sweep the entire message set number of time chunks times, squared, hella slow.
+
         bag_of_notes = []
         for i in range(len(note_events)):
             if note_events[i].velocity > 0:
@@ -177,9 +171,6 @@ def reduce_midi_to_np_array(mid):
                 break
             # use numpy slicing to apply the note value to every first index that is between its left and right.
             time_chunks[range(note.start, note.stop), note.pitch] = 1
-
-        # At this point, we have all of the notes. We can use them to build a collection of chords. 
-        # Python is Not going to like the indexing arguments I'm about to use. Oh well. 
         
         # right now, the collection of ticks carries massive amounts of redundancy. 
         # We should down-sample significantly to hold down compute times.
